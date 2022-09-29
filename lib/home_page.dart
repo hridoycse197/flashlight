@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/src/foundation/key.dart';
 import 'package:flutter/src/widgets/framework.dart';
+import 'package:flutter_background/flutter_background.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:torch_light/torch_light.dart';
 
@@ -27,65 +28,27 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   double _currentPitchValue = 100;
   double _currentRateValue = 100;
   @override
-  void initState() async {
+  initState() {
     WidgetsBinding.instance.addObserver(this);
     _speech = stt.SpeechToText();
 
-    await _listen;
+    _listen;
     setState(() {
       if (mounted) isListening = true;
     });
-
+    FlutterBackground.initialize(androidConfig: androidConfig);
     super.initState();
   }
 
-  // void _doOnSpeechCommandMatch(String? command) {
-  //   if (command == "start") {
-  //     _service.confirmIntent(
-  //         confirmationText: "Do you want to start?",
-  //         positiveCommand: "yes",
-  //         negativeCommand: "no");
-  //   } else if (command == "stop") {
-  //     _service.confirmIntent(
-  //         confirmationText: "Do you want to stop?",
-  //         positiveCommand: "yes",
-  //         negativeCommand: "no");
-  //   } else if (command == "hello") {
-  //     _service.confirmIntent(
-  //         confirmationText: "Hello to you!",
-  //         positiveCommand: "hi",
-  //         negativeCommand: "bye");
-  //   } else if (command == "address") {
-  //     _service.confirmIntent(
-  //         confirmationText: "What is the address?",
-  //         positiveCommand: "yes",
-  //         negativeCommand: "no",
-  //         voiceInputMessage: "Is the address correct?",
-  //         voiceInput: true);
-  //   }
-
-  //   setState(() {
-  //     confirmation = "$command [Confirmation Mode]";
-  //   });
-  // }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.detached) return;
-    final isBackGround = state = AppLifecycleState.paused;
-  }
-
-  void updateSpeaker() {
-    print("setSpeaker: pitch($_currentPitchValue) rate($_currentRateValue)");
-  }
+  final androidConfig = const FlutterBackgroundAndroidConfig(
+    notificationTitle: "flutter_background example app",
+    notificationText:
+        "Background notification for keeping the example app running in the background",
+    notificationImportance: AndroidNotificationImportance.Default,
+    notificationIcon: AndroidResource(
+        name: 'background_icon',
+        defType: 'drawable'), // Default is ic_launcher from folder mipmap
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +57,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       floatingActionButton: FloatingActionButton(
         child: Icon(isListening ? Icons.mic_none : Icons.mic_off),
         onPressed: () {
-          _listen();
+          setState(() {
+            _listen();
+          });
         },
       ),
       body: SafeArea(
@@ -110,11 +75,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         checkTourch = !checkTourch;
                       });
                       print(checkTourch);
-                      // showText == 'yes'
-                      //     ? _disableTorch(context)
-                      //     : _enableTorch(context);
                     },
                     child: Text(confirmation == 'yes' ? 'Icon' : 'false'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      await FlutterBackground.enableBackgroundExecution();
+                      if (FlutterBackground.isBackgroundExecutionEnabled) {
+                        bool available = await _speech!.initialize(
+                          finalTimeout: const Duration(minutes: 5),
+                          onStatus: (val) => print('onStatus: $val'),
+                          onError: (val) => print('onError: $val'),
+                        );
+                        if (available) {
+                          setState(() => isListening = true);
+                          _speech!.listen(
+                            onResult: (val) => setState(() {
+                              setState(() {
+                                showText = val.recognizedWords;
+                                showText == 'light on'
+                                    ? _enableTorch(context)
+                                    : showText == 'light off'
+                                        ? _disableTorch(context)
+                                        : Null;
+                              });
+                              showText = val.recognizedWords;
+                              if (val.hasConfidenceRating &&
+                                  val.confidence > 0) {
+                                _confidence = val.confidence;
+                              }
+                            }),
+                          );
+                        }
+                      }
+                    },
+                    child: Text("enable"),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      await FlutterBackground.disableBackgroundExecution();
+                      setState(() => isListening = false);
+                      _speech!.stop();
+                    },
+                    child: Text("disable"),
                   ),
                   Text(showText)
                 ],
@@ -158,9 +161,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           onResult: (val) => setState(() {
             setState(() {
               showText = val.recognizedWords;
-              showText == 'on'
+              showText == 'light on'
                   ? _enableTorch(context)
-                  : showText == 'Off'
+                  : showText == 'light off'
                       ? _disableTorch(context)
                       : Null;
             });

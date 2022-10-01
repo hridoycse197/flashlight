@@ -1,9 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/src/foundation/key.dart';
 import 'package:flutter/src/widgets/framework.dart';
 import 'package:flutter_background/flutter_background.dart';
+import 'package:flutter_voice_processor/flutter_voice_processor.dart';
+import 'package:porcupine/porcupine_error.dart';
+import 'package:rhino_flutter/rhino.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:torch_light/torch_light.dart';
+import 'package:picovoice_flutter/picovoice_manager.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -16,7 +22,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool isListening = false;
   String showText = 'Press the button to talk';
   double _confidence = 1.0;
-
+  PicovoiceManager? _picovoiceManager;
   //bg
 
   String result = "Say something!";
@@ -25,8 +31,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String voiceReply = "";
   var isListening1 = false;
 
-  double _currentPitchValue = 100;
-  double _currentRateValue = 100;
   @override
   initState() {
     WidgetsBinding.instance.addObserver(this);
@@ -36,8 +40,41 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     setState(() {
       if (mounted) isListening = true;
     });
+    _initPicovoice();
     FlutterBackground.initialize(androidConfig: androidConfig);
     super.initState();
+  }
+
+  final String accessKey = "..."; // your Picovoice AccessKey
+
+  void _initPicovoice() async {
+    String platform = Platform.isAndroid ? "android" : "ios";
+    String keywordPath = "assets/$platform/pico_clock_$platform.ppn";
+    String contextPath = "assets/$platform/flutter_clock_$platform.rhn";
+
+    try {
+      _picovoiceManager = await PicovoiceManager.create(accessKey, keywordPath,
+          _wakeWordCallback, contextPath, _inferenceCallback);
+      _picovoiceManager!.start();
+    } on PvError catch (ex) {
+      print(ex);
+    }
+  }
+
+  void _wakeWordCallback() {
+    setState(() {});
+  }
+
+  void _inferenceCallback(RhinoInference inference) {
+    if (inference.intent == 'light on') {
+      setState(() {
+        showText = inference.intent!;
+      });
+      _enableTorch(context);
+    } else if (inference.intent == 'light off') {
+      _disableTorch(context);
+      showText = inference.intent!;
+    }
   }
 
   final androidConfig = const FlutterBackgroundAndroidConfig(
@@ -82,7 +119,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     onPressed: () async {
                       await FlutterBackground.enableBackgroundExecution();
                       if (FlutterBackground.isBackgroundExecutionEnabled) {
+                        _picovoiceManager!.start();
                         bool available = await _speech!.initialize(
+                          options: [],
                           finalTimeout: const Duration(minutes: 5),
                           onStatus: (val) => print('onStatus: $val'),
                           onError: (val) => print('onError: $val'),
@@ -92,14 +131,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           _speech!.listen(
                             onResult: (val) => setState(() {
                               setState(() {
-                                showText = val.recognizedWords;
+                                showText = val.recognizedWords.toLowerCase();
                                 showText == 'light on'
                                     ? _enableTorch(context)
                                     : showText == 'light off'
                                         ? _disableTorch(context)
                                         : Null;
                               });
-                              showText = val.recognizedWords;
+                              showText = val.recognizedWords.toLowerCase();
                               if (val.hasConfidenceRating &&
                                   val.confidence > 0) {
                                 _confidence = val.confidence;
@@ -158,21 +197,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (available) {
         setState(() => isListening = true);
         _speech!.listen(
-          onResult: (val) => setState(() {
-            setState(() {
-              showText = val.recognizedWords;
-              showText == 'light on'
-                  ? _enableTorch(context)
-                  : showText == 'light off'
-                      ? _disableTorch(context)
-                      : Null;
-            });
-            showText = val.recognizedWords;
-            if (val.hasConfidenceRating && val.confidence > 0) {
-              _confidence = val.confidence;
-            }
-          }),
-        );
+            onResult: (val) => setState(() {
+                  setState(() {
+                    showText = val.recognizedWords.toLowerCase();
+                    showText == 'light on'
+                        ? _enableTorch(context)
+                        : showText == 'light off'
+                            ? _disableTorch(context)
+                            : Null;
+                  });
+                  showText = val.recognizedWords.toLowerCase();
+                }));
       }
     } else {
       setState(() => isListening = false);
